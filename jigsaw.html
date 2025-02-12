@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Puzzle Storage - Store Data in a puzzle</title>
+   <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 16px;
+    }
+    #puzzleOutput {
+      width: auto;
+      height: auto;
+      overflow: visible;
+    }
+  </style>
+  <script>
+    function randomBigInt(byteLength = 16) { // 16 bytes = 128 bits
+      const randomBytes = new Uint8Array(byteLength);
+      crypto.getRandomValues(randomBytes);
+
+      let hex = '';
+      for (let i = 0; i < randomBytes.length; i++) {
+        hex += randomBytes[i].toString(16).padStart(2, '0');
+      }
+
+      return BigInt('0x' + hex);
+    }
+
+    function puzzleSize(pieces) {
+      let H = 0, W = 0;
+      let bd = pieces < 4 ? 4 : pieces;
+      let min = 1 + Math.floor(Math.sqrt(pieces) / 4);
+      if (min < 3) min = 3;
+  
+      for (let i = pieces; !H; i++) {
+        for (let j = min; j <= i; j++) {
+          if (i % j !== 0) continue;
+          let k = i / j;
+          if (k < min) continue;
+          let d = Math.abs(k - j);
+          if (d < bd) { H = j; W = k; bd = d; }
+        }
+      }
+      return [H, W];
+    }
+
+    // calculate tab count for given puzzle dimensions
+    function tabs(W, H) {
+      return W * (H - 1) + H * (W - 1);
+    }
+
+    // given a required tab count, find the minimal puzzle size to produces at least that many tabs.
+    function puzzleSizeT(requiredTabs) {
+      let pieces = Math.floor(requiredTabs / 2);  // initial estimate
+      let H, W, t = 0;
+      while (true) {
+        [H, W] = puzzleSize(pieces);
+        t = tabs(W, H);
+        if (t >= requiredTabs) break;
+        pieces++;
+      }
+      return [W, H];
+    }
+
+    // Convert a numeric string to binary
+    function bin7(numStr) {
+      let n = BigInt(numStr);
+      let bin = n.toString(2);
+      while ( bin.length < 7 ) {
+        bin = '0' + bin;
+      }
+      return bin;
+    }
+
+    // Convert a text string to binary converting characters to its 7-bit ASCII
+    function msgBin(text) {
+      let result = '';
+      for (let i = 0; i < text.length; i++) {
+        let bin = text.charCodeAt(i).toString(2);
+        while (bin.length < 7) {
+          bin = '0' + bin;
+        }
+        result += bin;
+      }
+      return result;
+    }
+
+    // take a binary string and builds the SVG puzzle
+    function generatePuzzleFromBinary(binaryString) {
+      let requiredTabs = binaryString.length;
+      let [W, H] = puzzleSizeT(requiredTabs);
+      let c = 0, p = 30, P = 4;
+
+      p = parseInt(document.getElementById("PieceSize").value);
+      if ( p < 16 ) p = 16;
+      svgWidth  = p * W + 2 * P;
+      svgHeight = p * H + 2 * P;
+
+      svgWidth  *= p / 30;
+      svgHeight *= p / 30;
+
+      svgWidth  = 1 + Math.floor(svgWidth);
+      svgHeight = 1 + Math.floor(svgHeight);
+  
+      let SVG = `
+        <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"
+          xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <!-- David Krum's perfect puzzle path -->
+            <path id="C" stroke="black" fill="none" d="
+              m0,0c10,2 15,2 12,-3 -2,-3 0,-5 3,-5 3,0 5,2 3,5 -3,5 2,5 12,3
+            " />
+          </defs>
+          <g transform="translate(${P},${P}) scale(${p/30})">
+            <rect x="0" y="0" width="${p * W}" height="${p * H}"
+              rx="4" fill="none" stroke="black" />`;
+
+      // Horizontal tabs (between rows) Up=0 Down=1
+      for ( let i = 1; i < H; i++ ) {
+        SVG += `<g transform="translate(0,${i * p})">`;
+        for (let j = 0; j < W; j++, c++) {
+          let transformStr = `translate(${j * p})`;
+          if (binaryString[c] === "1") transformStr += " scale(1,-1)";
+          SVG += `<use href="#C" transform="${transformStr} scale(${p/30})" />`;
+        }
+        SVG += '</g>';
+      }
+  
+      // Vertical tabs (between columns) Left=0 Right=1
+      for ( let i = 1; i < W; i++ ) {
+        SVG += `<g transform="translate(${i * p},0) rotate(90,0,0)">`;
+        for ( let j = 0; j < H; j++, c++ ) {
+          let transformStr = `translate(${j * p})`;
+          if ( binaryString[c] != "1" ) transformStr += " scale(1,-1)";
+          SVG += `<use href="#C" transform="${transformStr} scale(${p/30})" />`;
+        }
+        SVG += '</g>';
+      }
+  
+      SVG += '</g></svg>';
+      document.getElementById("puzzleOutput").innerHTML = SVG;
+    }
+  
+    // Analyzes input and converts it as needed
+    function generatePuzzle() {
+      let inputStr = document.getElementById("binaryInput").value.trim();
+      
+      // Clear output if no input is provided.
+      if (inputStr.length === 0) {
+        document.getElementById("puzzleOutput").innerHTML = "";
+        return;
+      }
+      
+      let binaryStr = "";
+      // Check if input contains only 0s and 1s of length.
+        if ( inputStr.length > 3 && /^[01]+$/.test(inputStr) ) {
+        binaryStr = inputStr;
+      } else if ( /^[0-9]+$/.test(inputStr) ) {
+        // If numeric, use Bin7 conversion.
+        binaryStr = bin7(inputStr);
+      } else {
+        // Otherwise, assume text and use MsgBin conversion.
+        binaryStr = msgBin(inputStr);
+      }
+      
+      // Now generate the puzzle using the binary string.
+      document.getElementById("binaryOutput").value = binaryStr;
+      generatePuzzleFromBinary(binaryStr);
+    }
+
+    function RandomPuzzle() {
+      document.getElementById("binaryInput").value = randomBigInt();
+      generatePuzzle();
+    }
+
+    function SaveSVG() {
+      let svg = document.getElementById("puzzleOutput").innerHTML;
+      var blob = new Blob([svg], {type: "image/svg+xml"});
+
+      var elem = document.createElement('a');
+      elem.href = window.URL.createObjectURL(blob);
+      elem.download = "Puzzle.svg";        
+      document.body.appendChild(elem);
+      elem.click();        
+      document.body.removeChild(elem);
+    }
+
+    function SavePNG() {
+      let svg = document.getElementById("puzzleOutput").innerHTML;
+      if ( svg.length === 0 )
+        return
+
+      let canvas = document.createElement("canvas");
+      canvas.width = svgWidth;
+      canvas.height = svgHeight;
+
+      let img = new Image();
+      let ctx = canvas.getContext("2d");
+
+      img.onload = function () {
+        ctx.drawImage(img, 0, 0);
+        let pngUrl = canvas.toDataURL("image/png");
+        let downloadLink = document.createElement("a");
+        downloadLink.href = pngUrl;
+        downloadLink.download = "Puzzle.png";
+        downloadLink.click();
+      };
+
+      img.src = "data:image/svg+xml;base64," + btoa(svg);
+    }
+  </script>
+</head>
+<body onload="RandomPuzzle()">
+  <h2>Puzzle Storage</h2>
+  <p>Enter binary (only 0s and 1s), a number, or text:<br>
+    <textarea id="binaryInput" cols="70" rows="4" oninput="generatePuzzle()">
+    </textarea>
+  </p>
+  <p>Piece Size
+    <input type="number" id="PieceSize" min="16" max="120" step="4" value="32"
+      oninput="generatePuzzle()">
+  </p>
+  <div id="puzzleOutput"></div>
+  <p>Binary Value:<br>
+    <textarea id="binaryOutput" cols="70" rows="4"></textarea>
+  </p>
+  <button onclick="SavePNG()">Save PNG</button>
+  <button onclick="SaveSVG()">Save SVG</button>
+</body>
+</html>
+
